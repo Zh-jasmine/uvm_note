@@ -1,0 +1,9 @@
+# OS files
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Obsidian workspace cache (but keep .obsidian/ config)
+.obsidian/workspace
+.obsidian/workspace.json
+.trash/
