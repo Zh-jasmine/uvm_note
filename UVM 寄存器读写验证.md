@@ -143,7 +143,7 @@ end
 uvm_config_db #(virtual reg_if)::set(null, "uvm_test_top.env.agt.*", "vif", vif);
 ```
 
-逐段拆解：`uvm_config_db` 是全局数据库；`#(virtual reg_if)` 指定存储的类型是虚接口指针；`::set` 表示写入（`::get` 表示读出）；`null` 是不限上下文；`"uvm_test_top.env.agt.*"` 是路径字符串，`*` 通配符匹配 agent 下所有子组件（driver 和 monitor 都能看到）；`"vif"` 是键名，使用 `::get` 时传同一个键就能取到；最后的 `vif` 是要存入的值。
+逐段拆解：`uvm_config_db` 是全局数据库；`#(virtual reg_if)` 指定存储的类型是虚接口指针，`reg_if` 是接口模块的名字（register interface 的缩写），`virtual` 表示这是指向硬件接口的指针而不是接口本身；`::set` 表示写入（`::get` 表示读出）；`null` 表示不限定上下文，这个配置对所有 UVM 组件可见（如果填一个组件句柄，就只有该组件及其子组件能看到）；`"uvm_test_top.env.agt.*"` 是路径字符串，`agt` 是 agent 实例的名称（由验证工程师在 env 中命名，不是关键字），`*` 通配符匹配 agent 下所有子组件（driver 和 monitor 都能看到）；`"vif"` 是键名，约定俗成用 `vif` 表示 virtual interface`，不是 UVM 的强制要求，验证工程师可以取任意名字，只要 set 和 get 用同一个字符串即可；最后的 `vif` 是要存入的值。
 
 Driver 中取出的代码：
 ```systemverilog
