@@ -140,6 +140,16 @@ class reg_transaction extends uvm_sequence_item;
 
 地址范围约束 `addr_range` 限制地址只能在 0 到 255 之间，匹配 DUT 的 256 个寄存器深度。如果没有这个约束，随机化可能产生超出 DUT 地址范围的 transaction。
 
+### 对象创建与句柄语义
+
+在 SystemVerilog 中，class 类型的变量本质上是一个句柄（handle），类似于指针。声明句柄和创建对象是两个独立的步骤，这一点与 Verilog 的 wire 和 reg 类型不同。
+
+声明 `reg_transaction tr;` 只产生一个空的句柄，其值为 null，此时访问 `tr.addr` 会导致空指针错误。必须先创建对象，句柄才能指向一个实际存在的对象实例。创建对象有两种方式：直接调用构造函数 `tr = new()`，或者使用 UVM 工厂方法 `tr = reg_transaction::type_id::create("tr")`。
+
+两种方式的区别在于可覆盖性。UVM 工厂方法允许在运行时不修改代码的情况下将 `reg_transaction` 替换为其子类，这对于测试用例的灵活配置非常重要。直接调用 `new()` 则无法被工厂覆盖，创建出的永远是 `reg_transaction` 本身。在 UVM 环境中，建议统一使用 `type_id::create`。
+
+由于 class 句柄的传参语义是引用传递而不是值传递，将一个句柄赋值给另一个变量或作为参数传入 task 时，传递的是对象的地址而不是对象的副本。多个句柄可以指向同一个对象，通过任何一个句柄修改对象的字段，其他句柄都能看到修改后的值。这一特性在 UVM 的数据流中反复出现——sequence 创建 transaction 后传递给 driver，driver 修改 transaction 的内容（如读回数据），sequence 在 driver 完成后读取修改后的结果。
+
 ## 五、信号连接——Interface
 
 [⬆ 返回目录](#目录)
@@ -223,6 +233,8 @@ endtask
 ```
 
 读操作将 `vif.rdata` 的采样值写回 `tr.data`。这意味着同一个 transaction 对象在发送给 driver 时，`data` 字段保存的是写入数据（写操作）或无关值（读操作），在 driver 完成处理后，`data` 字段变成了读回的实际数据。这种方式使得 scoreboard 能够通过一个 transaction 同时获得读操作的地址和实际读回的数据。
+
+`drive_one` 的参数 `reg_transaction tr` 在 SystemVerilog 中是一个 class 类型的句柄参数，传递的是对象的引用而不是对象的副本。driver 内部的 `tr.addr` 和 `tr.data` 访问的是与 sequence 中同一个 transaction 对象的字段。读操作分支中 `tr.data = vif.rdata` 将读回的数据写入这个对象，sequence 在 `finish_item` 之后通过 `data = tr.data` 读取到的就是 driver 填入的结果。这种引用传递机制是 UVM 中 sequence 和 driver 之间数据返回的基础。
 
 ## 七、信号采样——Monitor
 
@@ -332,7 +344,15 @@ task write_reg(input bit [7:0] addr, input bit [31:0] data);
 endtask
 ```
 
-这里的关键在于 `start_item()` 和 `finish_item()` 这对方法。`start_item` 向 sequencer 请求发送权限，`finish_item` 通知 driver 当前 item 已准备好。中间的赋值操作（如 `tr.write = 1`）在 sequence 中完成，时序驱动部分交给 driver。
+这里的关键在于 `type_id::create` 以及 `start_item` 与 `finish_item` 这对方法。
+
+`reg_transaction::type_id::create("tr")` 在堆上分配一个 transaction 对象（如第四节中所述）。如果没有这一步，后续对 `tr.addr` 和 `tr.data` 的赋值会因空句柄而失败。
+
+`start_item` 向 sequencer 请求发送权限。Sequencer 内部维护一个仲裁队列，如果多个 sequence 同时请求，由 sequencer 决定谁先发送。`start_item` 会阻塞直到 sequencer 授予权限。
+
+在 `start_item` 通过和 `finish_item` 调用之间，sequence 填充 transaction 的字段。这段时间内，transaction 已被 sequencer 标记为等待发送，但尚未传送到 driver。这种设计允许 sequence 在获取发送权之后再进行字段赋值甚至随机化（`tr.randomize()` 放在 start_item 和 finish_item 之间是 UVM 标准用法）。
+
+`finish_item` 将 transaction 发送给 driver，并阻塞等待 driver 处理完成。Driver 通过 `get_next_item` 接收 transaction，执行 `drive_one` 进行时序驱动，最后调用 `item_done` 通知 sequencer，sequencer 再让 `finish_item` 返回。对于读操作，driver 在 `drive_one` 中将读回的数据写入了同一个 transaction 对象的 `data` 字段，因此 `finish_item` 返回后可以立即通过 `data = tr.data` 获取结果。
 
 ### 写后读测试
 
