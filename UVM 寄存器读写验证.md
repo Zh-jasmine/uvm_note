@@ -204,19 +204,21 @@ Driver 在其 `run_phase` 中进入一个无限循环，每个迭代执行以下
 
 ```systemverilog
 task drive_one(reg_transaction tr);
-    @(posedge vif.clk);
-    vif.addr <= tr.addr;
 
-    if (tr.write) begin
-        vif.wdata <= tr.data;
-        vif.write <= 1'b1;
-        @(posedge vif.clk);
-        vif.write <= 1'b0;
-    end else begin
-        vif.write <= 1'b0;
-        @(posedge vif.clk);
-        tr.data = vif.rdata;
-    end
+   @(posedge vif.clk);          // 等第一个时钟沿
+vif.addr <= tr.addr;          // 把地址放上总线
+
+if (tr.write) begin           // 判断这次是写还是读
+    vif.wdata <= tr.data;      // 写：数据放总线
+    vif.write <= 1'b1;         //     写使能拉高（通知 DUT：我要写）
+    @(posedge vif.clk);        //     等一个周期让 DUT 完成写入
+    vif.write <= 1'b0;         //     写使能拉低（释放总线）
+end else begin
+    vif.write <= 1'b0;         // 读：写使能拉低（告诉 DUT 我不写）
+    @(posedge vif.clk);        //     等一个周期 DUT 把数据放上 rdata
+    tr.data = vif.rdata;       //     从总线读回数据
+end
+
 endtask
 ```
 
