@@ -260,14 +260,16 @@ task run_phase(uvm_phase phase);
         @(posedge vif.clk);
         if (vif.write) begin
             tr = reg_transaction::type_id::create("tr");
-            tr.addr  = vif.addr;
-            tr.data  = vif.wdata;
-            tr.write = 1'b1;
+            tr.addr  = vif.addr;//把总线地址给tr
+            tr.data  = vif.wdata;//把总线写数据给tr
+            tr.write = 1'b1;//向dut发起写请求
             ap.write(tr);
         end
     end
 endtask
 ```
+
+父类的 `run_phase` 是空实现，调不调用super都可以。
 
 Monitor 在每个时钟上升沿检查 `write` 信号，如果为高则采集当前地址和数据，创建一个 transaction 并通过分析端口发送。
 
