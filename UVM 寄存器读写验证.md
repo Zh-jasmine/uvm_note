@@ -86,8 +86,8 @@ endmodule
 | clk    | 输入 | 1bit | 时钟，所有时序操作同步于此信号 |
 | rst_n  | 输入 | 1bit | 异步复位，低有效 |
 | addr   | 输入 | 8bit | 地址总线，选择 256 个寄存器中的一个 |
-| write  | 输入 | 1bit | 写使能，为 1 时将 wdata 写入 addr 指定的寄存器 |
-| wdata  | 输入 | 32bit | 写入数据，与 addr 和 write 配合完成写操作 |
+| write  | 输入 | 1bit | 写使能，为 1 时将 wdata 写入 addr 指定的寄存器；为 0 时表示读操作（无独立的读使能信号） |
+| wdata  | 输入 | 32bit | 写入数据，仅写操作时有效 |
 | rdata  | 输出 | 32bit | 读出数据，由 addr 组合逻辑决定，不依赖时钟 |
 | rvalid | 输出 | 1bit | 读有效指示，复位结束后始终为高 |
 
@@ -200,6 +200,8 @@ Driver 在其 `run_phase` 中进入一个无限循环，每个迭代执行以下
 3. 通知 sequencer 当前 item 已完成：`seq_item_port.item_done()`
 4. 如果是读操作，将 transaction（带有读回的数据）通过 `drv_ap` 分析端口发送给 scoreboard
 
+`get_next_item` 和 `item_done` 是 driver 侧的握手指令，它们分别对应 sequence 侧的 [[#九、验证场景——Sequence|start_item 和 finish_item]]。sequence 调用 `start_item` 时阻塞等待 driver 调 `get_next_item`，sequence 调 `finish_item` 时阻塞等待 driver 调 `item_done`。这两对方法共同构成 UVM 的 sequence-driver 握手机制。
+
 ### 时序说明
 
 读写各需两个时钟周期，具体时序已在[[#三、总线时序]]中说明。Driver 的职责是将时序逻辑用代码实现出来。
@@ -272,6 +274,8 @@ endtask
 父类的 `run_phase` 是空实现，调不调用super都可以。
 
 Monitor 在每个时钟上升沿检查 `write` 信号，如果为高则采集当前地址和数据，创建一个 transaction 并通过分析端口发送。
+
+`ap` 是 `uvm_analysis_port#(reg_transaction)` 类型的分析端口。`ap.write(tr)` 将当前 transaction 广播给所有连接到这个端口的组件。在 Env 的 `connect_phase` 中，monitor 的 `ap` 被连接到了 scoreboard 的 `mon_fifo`（一个 TLM analysis FIFO），因此 scoreboard 能接收到 monitor 发出的每一笔写 transaction。
 
 ## 八、激励调度——Sequencer
 
