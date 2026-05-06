@@ -1,8 +1,8 @@
 ## 目录
 
-- [[#一、验证任务概述]]
-- [[#二、项目结构]]
-- [[#三、待验证设计——寄存器模块]]
+- [[#一、验证环境总览]]
+- [[#二、信号说明]]
+- [[#三、总线时序]]
 - [[#四、数据载体——Transaction]]
 - [[#五、信号连接——Interface]]
 - [[#六、时序驱动——Driver]]
@@ -20,69 +20,37 @@
 - [[#十八、常见编译与运行错误]]
 
 
-## 一、验证任务概述
+## 一、验证环境总览
 
 [⬆ 返回目录](#目录)
 
-本项目的验证对象是一个简单的寄存器模块（reg_module），它包含 256 个 32 位寄存器，通过一个 8 位地址总线访问。验证任务是确认该模块的读写功能正确：写入一个地址的数据能够被正确存储，并在后续读取时返回相同的值。
+本项目的验证对象是一个简单的寄存器模块（reg_module），包含 256 个 32 位寄存器，通过 8 位地址总线访问。验证任务是确认该模块的读写功能正确：写入一个地址的数据能够被正确存储，并在后续读取时返回相同的值。
 
-验证环境使用 UVM（Universal Verification Methodology）搭建，采用了标准的组件化架构。整个验证环境按照 UVM 的分层思想组织，从下到上依次为信号层（interface）、数据对象层（transaction）、驱动采样层（driver/monitor）、激励层（sequencer/sequence）、数据比对层（scoreboard）、组件封装层（agent/env）以及测试用例层（test）。每一层在上层和下层之间增加了特定的抽象，使得验证环境具备可复用性和可扩展性。
+验证环境使用 UVM 搭建，采用标准的组件化架构。下表从信号到激励的分层视角列出了各组件的核心职责。
 
-## 二、项目结构
+| 组件 | 文件 | 核心职责 |
+|------|------|---------|
+| Transaction | reg_transaction.sv | 封装一笔寄存器操作的地址、数据和读写标识 |
+| Interface | reg_if.sv | 将 DUT 和验证环境之间的信号封装为一个独立结构 |
+| Driver | reg_driver.sv | 接收 transaction，按总线时序驱动到 interface 上 |
+| Monitor | reg_monitor.sv | 被动采样 interface 上的信号，恢复成 transaction |
+| Sequencer | reg_sequencer.sv | 在 sequence 和 driver 之间路由 transaction |
+| Sequence | reg_sequence.sv | 生成具体的读写激励序列 |
+| Scoreboard | reg_scoreboard.sv | 比较预期值与实际值，报告通过或失败 |
+| Agent | reg_agent.sv | 将 driver、monitor、sequencer 打包为可复用单元 |
+| Env | reg_env.sv | 实例化 agent 和 scoreboard 并连接数据通路 |
+| Test | reg_base_test.sv | 创建 env，控制仿真起止，启动 sequence |
+| Test Top | test_top.sv | 生成时钟复位，实例化 DUT 和 interface，启动 UVM |
 
-[⬆ 返回目录](#目录)
+验证环境的数据流分为写路径和读路径两条。写路径从 sequence 产生写 transaction 开始，经 sequencer 转发给 driver，driver 驱动到 interface 后 DUT 存储数据。同时 monitor 从 interface 采样写信号，重建出 transaction 并通过分析端口发送给 scoreboard 的记录通道。读路径由 sequence 产生读 transaction，driver 驱动读地址后 DUT 输出读数据，driver 在下一个时钟沿采样读数据写回 transaction，然后直接汇报给 scoreboard 的比对通道。
 
-```
-reg_test/
-├── Makefile                # 编译和运行脚本
-├── rtl/
-│   └── reg_module.sv       # 待验证设计（DUT）
-├── tb/
-│   ├── reg_if.sv           # 信号接口
-│   └── test_top.sv         # 仿真顶层
-└── verif/
-    ├── reg_transaction.sv  # 数据对象（transaction）
-    ├── reg_driver.sv       # 驱动
-    ├── reg_monitor.sv      # 监视器
-    ├── reg_sequencer.sv    # 序列器
-    ├── reg_sequence.sv     # 激励序列
-    ├── reg_scoreboard.sv   # 比对器
-    ├── reg_agent.sv        # 代理
-    ├── reg_env.sv          # 验证环境
-    └── reg_base_test.sv    # 测试用例
-```
+项目文件按目录组织。`rtl/` 目录存放待验证的 RTL 代码，`tb/` 目录存放信号接口和仿真顶层，`verif/` 目录存放所有 UVM 验证组件，根目录的 Makefile 用于编译和运行。
 
-整个项目按目录划分意图清晰。`rtl/` 目录存放待验证的 RTL 代码，`tb/` 目录存放验证环境与 DUT 连接所需的信号接口和仿真顶层，`verif/` 目录存放所有 UVM 验证组件。这种组织方式将设计和验证分开，是实际项目中的常规做法。
-
-## 三、待验证设计——寄存器模块
-
-[⬆ 返回目录](#目录)
+### 待验证设计
 
 文件位置：`rtl/reg_module.sv`
 
-### 模块接口
-
-| 信号名 | 方向 | 位宽 | 功能 |
-|--------|------|------|------|
-| clk    | 输入 | 1bit | 时钟 |
-| rst_n  | 输入 | 1bit | 异步复位（低有效） |
-| addr   | 输入 | 8bit | 地址（支持 256 个寄存器） |
-| write  | 输入 | 1bit | 写使能（1=写，0=读） |
-| wdata  | 输入 | 32bit | 写入数据 |
-| rdata  | 输出 | 32bit | 读出数据（组合逻辑输出） |
-| rvalid | 输出 | 1bit | 读有效指示 |
-
-### 行为描述
-
-这个 DUT 非常简洁，核心是一个 256x32 的寄存器阵列 `reg [31:0] mem [0:255]`。
-
-读操作是组合逻辑的。`rdata` 始终等于 `mem[addr]`，地址线上的值直接决定输出，不依赖时钟。这种设计对验证环境中的监测策略有重要影响，后文会详细讨论。
-
-写操作是时序逻辑的。在时钟上升沿采样到 `write=1` 时，将 `wdata` 写入 `mem[addr]`。
-
-`rvalid` 信号在复位结束后始终为高。这意味着 DUT 不提供明确的读完成握手信号，验证环境需要自己决定何时采样读数据。
-
-### 关键代码
+核心逻辑是一个 256x32 的寄存器阵列 `reg [31:0] mem [0:255]`。读操作是组合逻辑，`rdata` 始终等于 `mem[addr]`。写操作是时序逻辑，在时钟上升沿采样到 `write=1` 时将 `wdata` 写入 `mem[addr]`。`rvalid` 信号在复位结束后始终为高，不提供读完成握手信号。
 
 ```systemverilog
 module reg_module (
@@ -106,6 +74,36 @@ module reg_module (
     end
 endmodule
 ```
+
+## 二、信号说明
+
+[⬆ 返回目录](#目录)
+
+以下信号由顶层测试平台和 DUT 之间通过 interface 连接。每个信号在读写操作中承担特定的角色。
+
+| 信号名 | 方向 | 位宽 | 功能 |
+|--------|------|------|------|
+| clk    | 输入 | 1bit | 时钟，所有时序操作同步于此信号 |
+| rst_n  | 输入 | 1bit | 异步复位，低有效 |
+| addr   | 输入 | 8bit | 地址总线，选择 256 个寄存器中的一个 |
+| write  | 输入 | 1bit | 写使能，为 1 时将 wdata 写入 addr 指定的寄存器 |
+| wdata  | 输入 | 32bit | 写入数据，与 addr 和 write 配合完成写操作 |
+| rdata  | 输出 | 32bit | 读出数据，由 addr 组合逻辑决定，不依赖时钟 |
+| rvalid | 输出 | 1bit | 读有效指示，复位结束后始终为高 |
+
+`addr` 和 `write` 由 driver 驱动，`wdata` 在写操作时由 driver 驱动，`rdata` 由 DUT 驱动，monitor 采样 `write` 和 `wdata`。clk 由 test top 生成，rst_n 在仿真开始时由 test top 控制。
+
+## 三、总线时序
+
+[⬆ 返回目录](#目录)
+
+本项目的总线协议非常简洁，读写各需两个时钟周期。
+
+写操作。第一个时钟上升沿将 `addr` 设为目标地址，`wdata` 设为写入数据，`write` 设为 1。DUT 在此沿采样到 `write` 为高后将 `wdata` 存入 `mem[addr]`。第二个时钟上升沿将 `write` 设为 0，写操作完成。
+
+读操作。第一个时钟上升沿将 `addr` 设为目标地址，`write` 设为 0。由于 `rdata` 是组合逻辑输出，地址设置后 `rdata` 立即变为 `mem[addr]`。第二个时钟上升沿 driver 采样 `rdata`，完成读操作。
+
+所有信号变化均以时钟上升沿为基准。写操作涉及 addr、wdata、write 三个信号的驱动，读操作只驱动 addr 和 write，然后由 driver 采样 rdata。
 
 ## 四、数据载体——Transaction
 
@@ -202,13 +200,9 @@ Driver 在其 `run_phase` 中进入一个无限循环，每个迭代执行以下
 3. 通知 sequencer 当前 item 已完成：`seq_item_port.item_done()`
 4. 如果是读操作，将 transaction（带有读回的数据）通过 `drv_ap` 分析端口发送给 scoreboard
 
-### 写操作时序
+### 时序说明
 
-第一个时钟周期：将 `tr.addr` 赋值到 `addr`、`tr.data` 赋值到 `wdata`、`write` 信号置 1。下一个时钟周期：`write` 置 0，完成写操作。
-
-### 读操作时序
-
-第一个时钟周期：将 `tr.addr` 赋值到 `addr`、`write` 置 0。下一个时钟周期：采样 `rdata`，将采样值存入 `tr.data`。
+读写各需两个时钟周期，具体时序已在[[#三、总线时序]]中说明。Driver 的职责是将时序逻辑用代码实现出来。
 
 ### 关键代码
 
