@@ -140,7 +140,7 @@ class reg_transaction extends uvm_sequence_item;
 
 ### 对象创建与句柄语义
 
-在 SystemVerilog 中，class 类型的变量本质上是一个句柄（handle），类似于指针。声明句柄和创建对象是两个独立的步骤，这一点与 Verilog 的 wire 和 reg 类型不同。
+在 SystemVerilog 中，class 类型的变量本质上是一个句柄（handle），类似于指针。声明句柄和创建对象是两个独立的步骤。
 
 声明 `reg_transaction tr;` 只产生一个空的句柄，其值为 null，此时访问 `tr.addr` 会导致空指针错误。必须先创建对象，句柄才能指向一个实际存在的对象实例。创建对象有两种方式：直接调用构造函数 `tr = new()`，或者使用 UVM 工厂方法 `tr = reg_transaction::type_id::create("tr")`。
 
@@ -156,7 +156,7 @@ class reg_transaction extends uvm_sequence_item;
 
 ### 这一层加了什么
 
-SystemVerilog 的 interface 将 DUT 与验证环境之间的所有信号封装到一个独立的结构中。在 UVM 中常用的传递方式是使用 `virtual interface` 指针，通过 `uvm_config_db` 在 test top 中设置，在 UVM 组件中获取。
+SystemVerilog 的 interface 将 DUT 与验证环境之间的所有信号封装到一个独立的结构中。在 UVM 中常用的传递方式是使用 `virtual interface` 指针，不是真正的接口，只是指向接口，所以是`vrtual`。通过 `uvm_config_db` 在 test top 中设置，在 UVM 组件中获取。
 
 ### 为什么需要单独分出这一层
 
