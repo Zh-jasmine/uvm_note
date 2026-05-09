@@ -155,7 +155,12 @@ endfunction
 
 **为什么两跳？** test_top 是一个 module（非 UVM 组件），它不知道 UVM 组件树的内部结构。test_top 只能把 interface 放到 test 节点下，由 test 组件负责分发到各子组件。这保持 module 只管硬件层，UVM 内部路由由 UVM 组件自己处理。
 
-**语法拆解：** `#(virtual reg_if)` — 存的是虚接口指针类型；`::set` / `::get` — 写入/读出；`null` — 第一个参数为 null 表示绝对路径（从 UVM 树根开始），为 `this` 表示相对路径（从当前组件开始）；路径字符串指定在哪个资源池存/取；`"vif"` — 键名，set 和 get 必须用同一个字符串；最后的 `vif` — 存入/取出的值。
+**语法拆解：** interface 本质是硬件（一串 wire/reg），UVM 组件是软件（class 对象）。软件里没法"复制"一根导线，只能拿一个引用指着它，以后通过这个引用操作它的信号。所以 `uvm_config_db #(virtual reg_if)` 读作：「config_db 存储的类型是 指向 reg_if 的引用」。
+`::set` / `::get` — 写入/读出；`null` — 第一个参数为 null 表示绝对路径,即第二个参数为绝对路径必须完整引用。`this` 表示相对路径（从当前组件开始）`"vif"` — 键名，可以随便起，但 receiver 必须用同样的名字取；最后的 `vif`是指实例化的interface。
+
+所以整句话的意思： 在 UVM 树根节点（null）下，找到 `uvm_test_top` 这个节点，在里面放一个名叫 `"vif"` 的 virtual reg_if 引用，值指向 `test_top` 里例化的那个 interface。
+
+当 driver 调 `get(this, "", "vif", vif)` 时，它在自己的 build_phase 里向上一层层找，直到在 `uvm_test_top` 下找到这个 `"vif"`，取出引用写到自己的 `vif` 句柄里。
 
 **driver 和 monitor 各自 get：**
 ```systemverilog
@@ -163,7 +168,7 @@ uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif);
 // this = driver/monitor 自己，"" = 就在本节点找
 ```
 
-每个需要 interface 的组件各自调一次 get，从全局布告栏自己取——不是"注册了很多遍"，是"各取各的"。
+每个需要 interface 的组件各自调一次 get，从全局布告栏自己取。
 
 ## 五、测试用例——Test
 
@@ -200,32 +205,34 @@ endtask
 
 ```systemverilog
 class reg_base_test extends uvm_test;
-    `uvm_component_utils(reg_base_test)
-    reg_env env;
+    `uvm_component_utils(reg_base_test)
+    
+    reg_env env;
+    
+    function new(string name, uvm_component parent);
+        super.new(name, parent);
+    endfunction
 
-    function void build_phase(uvm_phase phase);
-        env = reg_env::type_id::create("env", this);
-    endfunction
+    function void build_phase(uvm_phase phase);
+        env = reg_env::type_id::create("env", this);
+    endfunction
 
-    function void connect_phase(uvm_phase phase);              // ← vif 分发在这里
-        virtual reg_if vif;
-        uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif);
-        uvm_config_db #(virtual reg_if)::set(this, "env.agent.driver", "vif", vif);
-        uvm_config_db #(virtual reg_if)::set(this, "env.agent.monitor", "vif", vif);
-    endfunction
-
-    function void end_of_elaboration_phase(uvm_phase phase);
-        uvm_top.print_topology();                              // 打印组件树
-    endfunction
-
-    task run_phase(uvm_phase phase);
-        reg_write_read_seq seq;
-        phase.raise_objection(this);
-        seq = reg_write_read_seq::type_id::create("seq");
-        seq.start(env.agent.sequencer);
-        #100;
-        phase.drop_objection(this);
-    endtask
+    function void connect_phase(uvm_phase phase);
+        virtual reg_if vif;
+        if (!uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif))
+            `uvm_fatal("TEST", "config_db 中没有 vif")
+        uvm_config_db #(virtual reg_if)::set(this, "env.agent.driver", "vif", vif);
+        uvm_config_db #(virtual reg_if)::set(this, "env.agent.monitor", "vif", vif);
+    endfunction
+    
+    task run_phase(uvm_phase phase);
+        reg_write_read_seq seq;
+        phase.raise_objection(this);
+        seq = reg_write_read_seq::type_id::create("seq");
+        seq.start(env.agent.sequencer);
+        #100;
+        phase.drop_objection(this);
+    endfunction
 endclass
 ```
 
