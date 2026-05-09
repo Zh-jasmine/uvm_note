@@ -41,7 +41,8 @@
 | Test        | reg_base_test.sv   | 创建 env，控制仿真起止，启动 sequence            |
 | Test Top    | test_top.sv        | 生成时钟复位，实例化 DUT 和 interface，启动 UVM    |
 
-验证环境的数据流分为写路径和读路径两条。写z写路径从 sequence 产生写 transaction 开始，经 sequencer 转发给 driver，driver 驱动到 interface 后 ，DUT 存储数据。同时 monitor 从 interface 采样写信号，重建出 transaction 并通过分析端口发送给 scoreboard 的记录通道。读路径由 sequence 产生读 transaction，driver 驱动读地址后，DUT 输出读数据，driver 在下一个时钟沿采样读数据写回 transaction，然后直接汇报给 scoreboard 的比对通道。
+验证环境的数据流分为写路径和读路径两条。写指的是写入dut，从 sequence 产生写 transaction 开始，经 sequencer 转发给 driver，driver 驱动到 interface 后 ，DUT 存储数据。同时 monitor 从 interface 采样写信号，重建出 transaction 并通过分析端口发送给 scoreboard 的记录通道。
+读是指从dut中读出数据，sequence 产生读 transaction，driver 驱动读地址后，DUT 输出读数据，driver 在下一个时钟沿采样读数据写回 transaction，然后直接汇报给 scoreboard 的比对通道。
 
 项目文件按目录组织。`rtl/` 目录存放待验证的 RTL 代码，`tb/` 目录存放信号接口和仿真顶层，`verif/` 目录存放所有 UVM 验证组件，根目录的 Makefile 用于编译和运行。
 
@@ -49,7 +50,7 @@
 
 文件位置：`rtl/reg_module.sv`
 
-核心逻辑是一个 256x32 的寄存器阵列 `reg [31:0] mem [0:255]`。读操作是组合逻辑，`rdata` 始终等于 `mem[addr]`。写操作是时序逻辑，在时钟上升沿采样到 `write=1` 时将 `wdata` 写入 `mem[addr]`。`rvalid` 信号在复位结束后始终为高，不提供读完成握手信号。
+核心逻辑是一个 256x32 的寄存器阵列 `reg [31:0] mem [0:255]`。读操作是组合逻辑，`rdata` 始终等于 `mem[addr]`。写操作是时序逻辑，在时钟上升沿采样到 `write=1` 时将 `wdata` 写入 `mem[addr]`。`rvalid` 信号在复位结束后始终为高，不提供读完成握手信号。因此在本设计中无意义，只在复杂的总时序中有作用。
 
 ```systemverilog
 module reg_module (
@@ -90,9 +91,7 @@ endmodule
 | rdata  | 输出 | 32bit | 读出数据，由 addr 组合逻辑决定，不依赖时钟 |
 | rvalid | 输出 | 1bit | 读有效指示，复位结束后始终为高 |
 
-`addr` 和 `write` 由 driver 驱动，`wdata` 在写操作时由 driver 驱动，`rdata` 由 DUT 驱动，monitor 采样 `write` 和 `wdata`。clk 由 test top 生成，rst_n 在仿真开始时由 test top 控制。
-
-`rvalid` 在标准协议中用于指示读数据有效——monitor 看到 `rvalid=1` 就去采样 `rdata`。但这个 DUT 的 `rvalid` 在复位结束后始终为高，相当于永远说"数据有效"，失去了握手意义。这就是后文 monitor 无法靠 rvalid 区分读状态、转而让 driver 汇报读结果的原因。
+addr和 write和wdata在写操作时由 driver 驱动，rdata由 DUT 驱动。monitor 采样 write和 wdata。clk 由 test top 生成，rst_n 在仿真开始时由 test top 控制。
 
 ## 三、总线时序
 
