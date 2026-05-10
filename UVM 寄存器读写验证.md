@@ -291,7 +291,7 @@ endclocking
 
 - clocking block 中的 output 信号驱动时默认使用非阻塞赋值（`<=`），在时钟沿之后改变（`#1step`）。
 - clocking block 中的 input 信号在时钟沿之前采样（`#0`）。driver 在时钟沿之后驱动，DUT 在时钟沿捕获，monitor 在时钟沿之前采样。这个时序保证了采样到的信号是稳定值。
-- 所以 clocking block的时序满足保持时间和建立时间，比起在项目中手动使用`@(posedge clk)和#10延时即方便也更稳定`
+- 所以 clocking block的时序满足保持时间和建立时间，比起在项目中手动使用`@(posedge clk)`和延时即方便也更稳定
 - 在 driver/monitor 中使用 `@(vif.drv_cb)` 可以同步到时钟沿，不需要再写 `@(posedge clk)`。
 - clocking block 的方向是从**使用它的组件看出去**的方向，不是从 DUT 看出去的方向。
 - 同一组物理信号可以在不同的 clocking block 中有不同的方向声明——driver 和 monitor 各取所需。
@@ -330,6 +330,9 @@ virtual reg_if.DRV vif;   // 采用 reg_if 的 DRV 模式
 - 使用 modport 可以在编译层面防止误操作：如果 monitor 拿到的是 MON 模式（只有 input 权限），代码中误写了驱动语句会直接编译报错。这种从物理上杜绝误操作的机制比靠人遵守规范更安全。
 - 如果不指定 modport，组件可以访问 interface 中的所有信号（可读可写）。
 - modport 也可以不通过 clocking block 直接声明信号方向：`modport DRV (output addr, wdata, write, input rdata, rvalid)`。本项目把所有方向信息放在 clocking block 中，modport 只负责指定使用哪个 clocking block——分工更清晰。
+
+Modport 和 clocking block 解决的是不同层面的问题，不冲突也不重复。Clocking block 是一个纯验证环境侧的时序构造，它定义了信号相对于时钟沿的采样和驱动时刻，能保证信号符合建立/保持时间，但 clocking block 不是一组可连线的物理信号，因此不能用于例化 DUT 时连接端口。Modport 从 interface 的信号集合中挑选出一个子集，为每根信号声明方向（input/output/inout），主要服务于两个场景：一是给 DUT 例化提供可连线的接口视图（DUT 端口必须连真实的 wire，无法连 clocking block），二是让 monitor 等组件获得仅采样的方向保护，编译器可以在误驱动时报错。
+在 UVM 组件内部只做激励或采样、不需要连线 DUT 也不需方向保护的场景下，直接引用 clocking block 就足够了，不一定需要modport。
 
 #### 4. 时钟参数 `input bit clk`
 
@@ -419,98 +422,63 @@ endclass
 ```
 
 ### 新概念讲解
-
-#### 1. `uvm_driver #(T)` — 参数化类
+#### 1. `uvm_driver #(T)` — 参数化驱动基类
 
 **是什么**
 
-`uvm_driver #(T)` 是一个参数化类，`#(T)` 表示它有一个类型参数 T，默认 `uvm_sequence_item`。`reg_driver` 继承 `uvm_driver #(reg_transaction)` 后，基类中所有出现 T 的地方都被替换成 `reg_transaction`。
+`uvm_driver #(T)` 是一个参数化类，`#(T)` 表示它接受一个类型参数，默认是 `uvm_sequence_item`。当你写 `extends uvm_driver #(reg_transaction)` 时，基类源码里所有的 `T` 都被替换成 `reg_transaction`。
+
+**语法/用法**
 
 ```systemverilog
-// UVM 源码（简化）：
+// UVM 源码中的定义（简化）
 class uvm_driver #(type T = uvm_sequence_item) extends uvm_component;
-    T   req;                                    // → reg_transaction req;
-    T   rsp;                                    // → reg_transaction rsp;
-    uvm_seq_item_pull_port #(T) seq_item_port;  // → 端口也参数化
+    T   req;                                    // 类型为 T 的句柄
+    T   rsp;                                    // 类型为 T 的句柄
+    uvm_seq_item_pull_port #(T) seq_item_port;  // 通信端口
+    ...
 endclass
+
+// 实际声明时指定具体类型
+class reg_driver extends uvm_driver #(reg_transaction);
+    // 继承后基类中的展开结果：
+    // reg_transaction req;
+    // reg_transaction rsp;
+    // uvm_seq_item_pull_port #(reg_transaction) seq_item_port;
 ```
 
-**语法/用法**
+**细节/注意的点**
+
+- `#(T)` 里的 `T` 表示「这是一个参数，具体类型后面再定」。写 `uvm_driver #(reg_transaction)` 就是告诉编译器：「把基类里所有 T 替换成 reg_transaction」。
+- `req` 是基类内置的句柄，类型和参数 T 一致。你也可以不用内置的 `req`，自己声明一个变量传进去：
 
 ```systemverilog
-class 自定义driver extends uvm_driver #(自定义transaction类型);
-    // 类体内可以直接使用 req 和 seq_item_port，不需要自己声明
+reg_transaction my_tr;
+seq_item_port.get_next_item(my_tr);    // 一样能用
+```
+
+- `uvm_driver` 继承自 `uvm_component`，所以构造函数需要 `(string name, uvm_component parent)` 两个参数，注册用 `uvm_component_utils`。
+
+#### 2. `seq_item_port` — driver 与 sequencer 的管道
+
+**是什么**
+
+`seq_item_port` 是 `uvm_driver #(T)` 内置的一个成员变量，它的类型是 `uvm_seq_item_pull_port #(T)`——这个类本身。
+
+``` systemverilog
+// uvm_driver 内部（简化）
+class uvm_driver #(type T = uvm_sequence_item) extends uvm_component;
+    uvm_seq_item_pull_port #(T) seq_item_port;   // ← 成员变量，类型是这个 port 类
+    //                        ↑ 这个才是类名
 endclass
+
 ```
 
-**细节/注意的点**
+`seq_item_port` 是 driver 和 sequencer 之间的 TLM 通信端口，类型 
+`uvm_seq_item_pull_port #(T)`这个类。它由 `uvm_driver` 基类内置，driver 不需要手动创建。
+所以`seq_item_port`是指向 `uvm_seq_item_pull_port #(T)`类的句柄，`seq_item_port.get_next_item(req);`的意思就是引用其get_next_item方法。get_next_item的作用就是阻塞等待，直到 sequencer 那边有 transaction 可以拿，然后把 transaction 的句柄塞进 `req`。
 
-- `req` 是基类 `uvm_driver` 内置的句柄，类型就是 T。`get_next_item(req)` 把从 sequencer 收到的 transaction 写进 `req`。变量名可换成 `get_next_item(my_tr)`，效果相同。
-- `seq_item_port` 也是内置的，类型 `uvm_seq_item_pull_port #(T)`——driver 不需要手动创建它。
-- 对比：`uvm_analysis_port` **不是内置的**（见下文），需要手动声明和 `new`。
-
-#### 2. `build_phase` 和 `run_phase`
-
-**是什么**
-
-它们是 UVM phase 系统中的两个阶段。phase 是 UVM 规定好的一套执行流程——所有组件按顺序执行同一个 phase，保证「先建组件再连数据再跑仿真」的顺序不出错。
-
-| phase | 执行顺序 | 做什么 |
-|---|---|---|
-| `build_phase` | 最先执行（从上到下） | 创建子组件、从 config_db 取参数 |
-| `run_phase` | 最后执行（所有组件并行） | 主要仿真逻辑——驱动、采样、比对 |
-
-**语法/用法**
-
-```systemverilog
-function void build_phase(uvm_phase phase);
-    // 这个阶段是 function，不能耗时
-    rd_port = new("rd_port", this);           // new 子组件或端口
-    uvm_config_db #(...)::get(this, "...");   // 取配置
-endfunction
-
-task run_phase(uvm_phase phase);
-    // 这个阶段是 task，可以包含 @(posedge clk)、forever、wait 等耗时操作
-    forever begin ... end
-endtask
-```
-
-**细节/注意的点**
-
-- `build_phase` 是 function，不能有耗时操作（不能 `@`、`#delay`、`wait`）。`run_phase` 是 task，可以做任何耗时操作。
-- build_phase 的执行顺序是**从 UVM 树根往下逐层执行**（test → env → agent → driver/monitor/sequencer），保证子组件的 build_phase 执行时父组件已经准备好了。
-- `run_phase` 是**所有组件并行执行**，driver 驱动信号、monitor 采样信号、scoreboard 比对数据都在这个阶段做。
-- phase 的执行不需要用户手动触发，UVM 的 `run_test()` 在 test top 中调一次后自动调度全部 phase。
-
-#### 3. `uvm_config_db::get`
-
-**是什么**
-
-`uvm_config_db` 是 UVM 的全局布告栏——一个组件往里存，另一个组件往里取，两者不需要互相知道对方存在。`::set` 写入，`::get` 读出。
-
-**语法/用法**
-
-```systemverilog
-uvm_config_db #(类型)::get(当前组件, "相对路径", "键名", 目标变量);
-```
-
-driver 的 build_phase 中：
-
-```systemverilog
-uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif);
-```
-
-**细节/注意的点**
-
-- `this` 等于 driver 自己在 UVM 树中的全路径 `uvm_test_top.env.agent.driver`。`""` 表示「就在本节点找」。所以它查的是 `uvm_test_top.env.agent.driver` 下有没有名为 `"vif"` 的配置。
-- 谁存的？test 的 connect_phase 里 `set(this, "env.agent.driver", "vif", vif)` 存在 `uvm_test_top.env.agent.driver` 下，正好对上。
-- `if (!get(...)) uvm_fatal(...)` 这层错误检查不能省——如果 config_db 里找不到 vif，driver 的 `vif` 句柄是 null，驱动时直接段错误崩溃。`uvm_fatal` 提前终止仿真并打出清晰的错误信息。
-
-#### 4. `seq_item_port` — driver 与 sequencer 的管道
-
-**是什么**
-
-`seq_item_port` 是 driver 和 sequencer 之间的 TLM 通信端口，类型 `uvm_seq_item_pull_port #(T)`。它由 `uvm_driver` 基类内置，driver 不需要手动创建。
+TLM：Transaction-Level Modeling，是一种用于数字系统设计的高级建模方法，通过分离功能模块与通信机制实现系统级抽象。
 
 **语法/用法**
 
@@ -527,7 +495,9 @@ seq_item_port.item_done();           // 通知 sequencer：这笔处理完了
 - 完整握手链路：sequence `start_item(tr)` → 等待仲裁 → `finish_item(tr)` → sequencer 转发 → driver `get_next_item(req)` 拿到 → 驱动 DUT → `item_done()` → sequence `finish_item` 返回。
 - `get_next_item` 和 `item_done` 是 driver 侧的方法，它们分别对应 sequence 侧的 [[#九、验证场景——Sequence|start_item 和 finish_item]]。
 
-#### 5. `uvm_analysis_port`
+
+
+#### 3. `uvm_analysis_port`
 
 **是什么**
 
@@ -652,7 +622,6 @@ endclass
 - `uvm_monitor` 和 `uvm_driver` 都继承自 `uvm_component`，所以都有 `build_phase`、`run_phase`、`config_db` 等机制。
 - monitor 只看不驱动，所以不需要 sequencer 端口或 TLM 握手。
 - 父类 `run_phase` 是空函数，`super.run_phase` 和 `super.build_phase` 可调可不调——调了也没副作用。
-- `uvm_analysis_port` 的详细讲解见 [[#六、时序驱动——Driver]]。
 
 #### 2. 采样策略
 
