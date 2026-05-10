@@ -291,6 +291,7 @@ endclocking
 
 - clocking block 中的 output 信号驱动时默认使用非阻塞赋值（`<=`），在时钟沿之后改变（`#1step`）。
 - clocking block 中的 input 信号在时钟沿之前采样（`#0`）。driver 在时钟沿之后驱动，DUT 在时钟沿捕获，monitor 在时钟沿之前采样。这个时序保证了采样到的信号是稳定值。
+- 所以 clocking block的时序满足保持时间和建立时间，比起在项目中手动使用`@(posedge clk)和#10延时即方便也更稳定`
 - 在 driver/monitor 中使用 `@(vif.drv_cb)` 可以同步到时钟沿，不需要再写 `@(posedge clk)`。
 - clocking block 的方向是从**使用它的组件看出去**的方向，不是从 DUT 看出去的方向。
 - 同一组物理信号可以在不同的 clocking block 中有不同的方向声明——driver 和 monitor 各取所需。
