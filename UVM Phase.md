@@ -339,34 +339,4 @@ final_phase      （自底向上，function，关闭文件/清理资源）
 
 ---
 
-## 下一步：学完 Phase 之后应该学什么
 
-Phase 是 UVM 组件（component）的生命周期框架，但它需要和其他机制配合才能构成完整的验证环境：
-
-**config_db** — phase 的 build_phase 是 config_db 的 get/set 执行时机。上文中 build_phase 部分已初步涉及。完整内容包括：`uvm_config_db#(type)` 的 `set()` 和 `get()` 方法、路径匹配规则、`this` 和 `"*"` 通配符的作用。
-
-**TLM port/export** — connect_phase 中进行端口绑定时用到 TLM 机制。完整内容包括：put/get 端口、analysis port、fifo 连接。
-
-**sequence/sequencer/driver 握手** — run_phase 中调用 `seq.start(sqr)` 和 driver 的 `get_next_item()` / `item_done()` 之间的配合机制。
-
-建议顺序：config_db → sequence 握手 → TLM。
-
----
-
-## 常见问题
-
-**问：一个 component 不需要做任何事，可以不写某个 phase 吗？**
-
-可以。只有重写了对应方法的组件才会在该 phase 中被调用，空 phase 不会触发任何操作。
-
-**问：为什么 connect_phase 是自底向上？**
-
-因为连接通常发生在同层或兄弟组件之间。叶子组件（driver、monitor）提前完成连接后，所属 agent 才能在 connect_phase 中聚合子组件的端口供上层使用。
-
-**问：build_phase 中用 `type_id::create()` 和用 `new()` 有什么区别？**
-
-`new()` 跳过 factory 的查询和 override 表，直接创建当前类的实例。`type_id::create()` 先查询 factory 表中是否存在对该类型的 override，如果有则返回替代类型的实例，没有则返回当前类的实例。用 `new()` 会使 factory 的替换能力失效。
-
-**问：`uvm_phase phase` 这个参数到底干什么用的？**
-
-在 function phase（build、connect、report）中基本用不到它。在 task phase（run_phase）中通过它调用 `raise_objection` 和 `drop_objection`。它必须存在的原因是 phase 方法是父类 virtual function 的 override——签名必须一致，父类写了 `(uvm_phase phase)` 子类也必须写。
