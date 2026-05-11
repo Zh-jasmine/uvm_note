@@ -495,8 +495,6 @@ seq_item_port.item_done();           // 通知 sequencer：这笔处理完了
 - 完整握手链路：sequence `start_item(tr)` → 等待仲裁 → `finish_item(tr)` → sequencer 转发 → driver `get_next_item(req)` 拿到 → 驱动 DUT → `item_done()` → sequence `finish_item` 返回。
 - `get_next_item` 和 `item_done` 是 driver 侧的方法，它们分别对应 sequence 侧的 [[#九、验证场景——Sequence|start_item 和 finish_item]]。
 
-
-
 #### 3. `uvm_analysis_port`
 
 **是什么**
