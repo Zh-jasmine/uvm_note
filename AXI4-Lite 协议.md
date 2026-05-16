@@ -71,18 +71,18 @@ AXI4-Lite 按字节地址寻址。这个 DUT 的地址总线宽度是 6bit（有
 
 这 8 个寄存器的地址分配如下。
 
-| 地址 | 寄存器 | 属性 | 功能 |
-| ---- | ----- | --- | ---- |
-| 0x00 | slv_reg0 | 可读写 | SPI 控制和状态 |
-| 0x04 | slv_reg1 | 可读写 | SPI 时钟分频配置 |
+| 地址   | 寄存器      | 属性  | 功能             |
+| ---- | -------- | --- | -------------- |
+| 0x00 | slv_reg0 | 可读写 | SPI 控制和状态      |
+| 0x04 | slv_reg1 | 可读写 | SPI 时钟分频配置     |
 | 0x08 | slv_reg2 | 可读写 | CPOL/CPHA 模式配置 |
-| 0x0C | slv_reg3 | 可读写 | SPI 控制续 |
-| 0x10 | slv_reg4 | 可读写 | SPI 控制续 |
-| 0x14 | slv_reg5 | 可读写 | 帧间隙配置 |
-| 0x18 | slv_reg6 | 可读写 | CS 到 SCK 时序配置 |
-| 0x1C | slv_reg7 | 可读写 | SCK 到 CS 时序配置 |
-| 0x20 | slv_reg8 | 可读写 | MOSI 发送数据 |
-| 0x24 | slv_reg9 | 只读 | MISO 接收数据 |
+| 0x0C | slv_reg3 | 可读写 | SPI 控制续        |
+| 0x10 | slv_reg4 | 可读写 | SPI 控制续        |
+| 0x14 | slv_reg5 | 可读写 | 帧间隙配置          |
+| 0x18 | slv_reg6 | 可读写 | CS 到 SCK 时序配置  |
+| 0x1C | slv_reg7 | 可读写 | SCK 到 CS 时序配置  |
+| 0x20 | slv_reg8 | 可读写 | MOSI 发送数据      |
+| 0x24 | slv_reg9 | 只读  | MISO 接收数据      |
 
 地址 0x24（slv_reg9）是只读的，如果主机尝试写入这个地址，DUT 应当通过 BRESP 返回 SLVERR 而不是 OKAY。
 
