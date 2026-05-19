@@ -12,36 +12,64 @@
 ## 二、验证环境架构
 
 ```
-┌──────────────────────────────────────────────┐
-│                  Testbench Top                 │
-│                                                │
-│  ┌───────────┐              ┌───────────┐     │
-│  │  AXI Agent │              │ SPI Agent  │     │
-│  │ ┌───────┐ │              │ ┌───────┐  │     │
-│  │ │Driver │ │              │ │Driver │  │     │
-│  │ └───┬───┘ │              │ └───┬───┘  │     │
-│  │ ┌───┴───┐ │   ┌───────┐  │ ┌───┴───┐  │     │
-│  │ │Monitor│◄┼──►│Scrbrd │◄─┼─┤Monitor│  │     │
-│  │ └───────┘ │   └───┬───┘  │ └───────┘  │     │
-│  │ ┌───────┐ │       │      │            │     │
-│  │ │Seqncer│ │   ┌───┴───┐  │            │     │
-│  │ └───────┘ │   │Coverage│  │            │     │
-│  └─────┬─────┘   └───────┘  └─────┬───────┘     │
-│        │                          │              │
-│  ┌─────▼──────────────────────────▼──────────┐  │
-│  │           DUT (AXI_slave_top)              │  │
-│  │  ┌──────────────┐   ┌────────────┐       │  │
-│  │  │ AXI_SPI_n_regs│◄─►│ SPI_master │       │  │
-│  │  └──────────────┘   └────────────┘       │  │
-│  └──────────────────────────────────────────┘  │
-│                                                │
-│  ┌──────────────────┐                          │
-│  │ Virtual Sequencer│  协调 AXI + SPI 时序      │
-│  └──────────────────┘                          │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        Testbench Top                             │
+│                                                                  │
+│  ┌──────────────────────┐          ┌──────────────────────┐     │
+│  │      AXI Agent       │          │      SPI Agent       │     │
+│  │                      │          │                      │     │
+│  │  ┌────────────────┐  │          │  ┌────────────────┐  │     │
+│  │  │   Sequencer    │  │          │  │   Sequencer    │  │     │
+│  │  └───────┬────────┘  │          │  └───────┬────────┘  │     │
+│  │          ▼            │          │          ▼            │     │
+│  │  ┌────────────────┐  │          │  ┌────────────────┐  │     │
+│  │  │    Driver      │  │          │  │    Driver      │  │     │
+│  │  └───────┬────────┘  │          │  └───────┬────────┘  │     │
+│  │          │ 驱动方向    │          │          │ 驱动方向    │     │
+│  │          ▼            │          │          ▼            │     │
+│  │  ┌────────────────┐  │          │  ┌────────────────┐  │     │
+│  │  │   Interface    │  │          │  │   Interface    │  │     │
+│  │  │   (vif)        │  │          │  │   (vif)        │  │     │
+│  │  └──┬─────┬───────┘  │          │  └──┬─────┬───────┘  │     │
+│  │     │     │ 采样方向   │          │     │     │ 采样方向   │     │
+│  │     │     ▼          │          │     │     ▼          │     │
+│  │  ┌──┴─────────────┐  │          │  ┌──┴─────────────┐  │     │
+│  │  │    Monitor     │  │          │  │    Monitor     │  │     │
+│  │  └───────┬────────┘  │          │  └───────┬────────┘  │     │
+│  └──────────┼───────────┘          └──────────┼───────────┘     │
+│             │                                  │                │
+│  ┌──────────▼──────────────────────────────────▼──────────┐     │
+│  │                      DUT                               │     │
+│  │               AXI_slave_top                            │     │
+│  │           ┌─────────┐  ┌───────┐                       │     │
+│  │           │AXI_SPI_ │  │SPI_   │                       │     │
+│  │           │n_regs   │─┤master │                       │     │
+│  │           └─────────┘  └───────┘                       │     │
+│  └────────────────────────────────────────────────────────┘     │
+│                                                                  │
+│       ▲                                 ▲                        │
+│       │ analysis port                    │ analysis port         │
+│       │ 单向广播                          │ 单向广播               │
+│  ┌────┴──────────────────┐  ┌────────────┴──────────────────┐   │
+│  │      Scoreboard       │  │      Coverage Collector       │   │
+│  │  AXI 写入 vs SPI 波形   │  │       功能覆盖点收集           │   │
+│  └────────────────────────┘  └───────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │               Virtual Sequencer                          │    │
+│  │       调度 AXI Sequencer + SPI Sequencer 时序            │    │
+│  └──────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+
+数据流说明：
+  Sequencer ──→ Driver ──→ DUT         （事务 → 信号，主动驱动）
+  Monitor   ←── DUT 接口               （被动监听，与 Driver 并联在同一 interface 上）
+  Monitor   ──→ Scoreboard             （analysis port，单向广播）
+  Monitor   ──→ Coverage Collector     （analysis port，单向广播）
+  Virtual Sequencer ←──→ 两边 Sequencer （双向，调度握手）
 ```
 
-提示词给 Gemini：`A UVM testbench architecture block diagram showing an AXI4-Lite to SPI Bridge DUT in the center. On the left side, an AXI Agent containing Driver, Monitor, and Sequencer connects to the DUT's AXI slave interface. On the right side, a SPI Agent containing Driver and Monitor connects to the DUT's SPI pins (MOSI, MISO, SCK, CS). In the middle above, a Scoreboard and Coverage Collector compare AXI transactions against SPI transactions. A Virtual Sequencer at the bottom coordinates both agents. Use clean rectangular blocks with arrows showing data flow direction. White background, professional IC verification diagram style.`
+提示词给 Gemini：`A UVM testbench architecture block diagram. Center: DUT block labeled "AXI4-Lite to SPI Bridge". Left: AXI Agent containing Sequencer (top), Driver (middle), Monitor (bottom). Sequencer arrow down to Driver. Driver connects to DUT left side via "AXI4-Lite" bus. Monitor connects to same bus (passive). Right: SPI Agent containing Sequencer (top), Driver (middle), Monitor (bottom). Same internal structure. Driver connects to DUT right side via SPI signals (MOSI SCK CS output from DUT, MISO input to DUT). Monitor also on same SPI lines. Below DUT: Scoreboard block receiving from both Monitors (analysis port arrows from both Monitors). Coverage Collector next to Scoreboard, also receiving from both Monitors. Bottom: Virtual Sequencer with bidirectional arrows to both Sequencers. White background, clean rectangular blocks, professional IC verification diagram style.`
 
 ## 三、组件说明
 
