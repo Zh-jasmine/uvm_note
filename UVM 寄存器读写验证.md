@@ -459,7 +459,90 @@ seq_item_port.get_next_item(my_tr);    // 一样能用
 
 - `uvm_driver` 继承自 `uvm_component`，所以构造函数需要 `(string name, uvm_component parent)` 两个参数，注册用 `uvm_component_utils`。
 
-#### 2. `seq_item_port` — driver 与 sequencer 的管道
+#### 2. `uvm_config_db` — 全局参数传递系统
+
+**是什么**
+
+`uvm_config_db` 是 UVM 内置的全局配置数据库，本质是一张**键值对表格**（类似字典）。`set` 写入配置，`get` 读取配置。它让任意两个 UVM 组件之间传递对象（通常是 virtual interface、config 对象等）而不需要互相有直接引用，是 UVM 环境中最常用的组件间通信手段之一。
+
+**语法/用法**
+
+Driver 中 get 的标准写法：
+
+```systemverilog
+uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif)
+//            ↑类型参数    ↑静态方法  ↑1   ↑2    ↑3    ↑4
+```
+
+逐一解释各部分的含义：
+
+| 部分 | 示例值 | 作用 |
+|---|---|---|
+| `#(virtual reg_if)` | 类型参数 | 要传递的数据类型。**set 和 get 的类型必须完全一致**，否则 get 返回失败。这里传的是指向 interface 的 virtual 句柄；如果传 config 对象就写 `#(axi_config)` |
+| `::get` | 静态方法 | `get` 是从数据库里**读取**，`set` 是**写入**。两者都是 `uvm_config_db` 类的静态方法 |
+| 1 `this` | 上下文 | 当前组件的句柄。UVM 内部取 `this` 的完整层次路径（如 `/uvm_test_top/env/agent/driver`），作为路径匹配的基准点 |
+| 2 `""` | 路径后缀 | 在基准路径后拼接的额外路径。空字符串表示"不加额外路径，直接用 this 的路径"。如果 this 是 driver，`""` 就匹配 driver 自身的路径 |
+| 3 `"vif"` | 键名 | 配置的索引名。set 和 get 通过这个字符串匹配，**必须完全一致**，类似字典的 key |
+| 4 `vif` | 接收变量 | get 把查到的配置值写入哪个变量。它是 **output 参数**——get 函数内部修改这个变量的值，类型由 `#(T)` 指定 |
+
+路径匹配规则（理解这个才真正懂 config_db）：
+
+set 和 get 之所以能对上，是因为 UVM 内部按 **最终路径 + 键名** 做匹配。
+
+```
+最终路径 = this.get_full_name() + 第二参数字符串
+```
+
+以 test_base 向 driver 传递 vif 为例：
+
+```
+// 写入端（test_base 的 connect_phase）
+uvm_config_db #(virtual reg_if)::set(this, "env.agent.driver", "vif", vif);
+// this = test_base → 路径 = /uvm_test_top
+// 拼接后最终路径 = /uvm_test_top + /env/agent/driver = /uvm_test_top/env/agent/driver
+// 键名 = "vif"
+
+// 读取端（driver 的 build_phase）
+uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif);
+// this = driver → 路径 = /uvm_test_top/env/agent/driver
+// 拼接后最终路径 = /uvm_test_top/env/agent/driver + "" = /uvm_test_top/env/agent/driver  
+// 键名 = "vif" → 匹配成功！
+```
+
+如果 set 时第二参数写成了 `"env.agent"`，最终路径变成 `/uvm_test_top/env/agent`，driver 那边用 `this` 的 `/uvm_test_top/env/agent/driver` 来匹配就对不上，get 返回 0。
+
+失败处理：
+
+```systemverilog
+if (!uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif))
+    `uvm_fatal("DRV", "vif 没有从 config_db 传进来")
+```
+
+`::get` 返回 `bit` 类型——成功返回 1，失败返回 0。失败原因通常是：路径不对、键名不匹配、类型参数不一致、或者根本没有 set 过。用 `if (!get)` 捕获失败并报致命错误（`uvm_fatal`），仿真无法继续。
+
+set 的对应写法（通常在 test_base 中）：
+
+```systemverilog
+// test_base 的 connect_phase 中
+virtual reg_if vif;
+uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif);  // 从 test_top 拿
+uvm_config_db #(virtual reg_if)::set(this, "env.agent.driver", "vif", vif);  // 发给 driver
+```
+
+这里同时出现了 get 和 set：test_base 先**从 test_top 拿**到 vif（第一跳），再**往下分发给** driver 和 monitor（第二跳）。module 里 set 时没有 `this`，用 `null` 替代；组件里 set/get 时用 `this`。
+
+**细节/注意的点**
+
+- set 和 get 的**类型参数必须完全一致**。set 时用 `#(virtual reg_if)` 存进去的，get 时如果用 `#(axi_config)` 来取就取不到（就算键名相同、路径相同也取不到）。类型不匹配时 get 静默返回 0，不会报编译错误。
+- module 中没有 `this`，所以 test_top 的 initial 块中 set 时用 `null`：
+  ```systemverilog
+  uvm_config_db #(virtual reg_if)::set(null, "uvm_test_top", "vif", vif);
+  ```
+  `null` 表示从根路径开始，第二参数 `"uvm_test_top"` 是 `run_test()` 内部创建的 test 实例固定名。
+- `uvm_config_db` 底层是 `uvm_resource_db` 的封装。资源表是全局唯一的，set 创建条目，get 查询条目。同一个键名被多次 set 时，后 set 的覆盖前 set 的。
+- 不限于传递 virtual interface。任何类型都可以用 config_db 传递：config 对象（如 `#(axi_config)`）、int 值（如 `#(int)`）、字符串、甚至数组。AXI 项目中 driver 先 get `axi_config` 对象再从中取 vif 的做法就是多了一层封装——先传 config 对象（含 vif 字段），再通过 config 对象访问 interface。
+
+#### 3. `seq_item_port` — driver 与 sequencer 的管道
 
 **是什么**
 
@@ -495,7 +578,7 @@ seq_item_port.item_done();           // 通知 sequencer：这笔处理完了
 - 完整握手链路：sequence `start_item(tr)` → 等待仲裁 → `finish_item(tr)` → sequencer 转发 → driver `get_next_item(req)` 拿到 → 驱动 DUT → `item_done()` → sequence `finish_item` 返回。
 - `get_next_item` 和 `item_done` 是 driver 侧的方法，它们分别对应 sequence 侧的 [[#九、验证场景——Sequence|start_item 和 finish_item]]。
 
-#### 3. `uvm_analysis_port`
+#### 4. `uvm_analysis_port`
 
 **是什么**
 
