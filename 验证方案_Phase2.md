@@ -13,7 +13,12 @@
 
 ![UVM 验证平台架构图|641](uvm_axi_spi_testbench_arch.svg)
 
+上图的组件结构和数据流如下：
 
+- **AXI Agent（左侧）**：内部依次为 Sequencer → Driver → DUT，Driver 通过双向 AXI4-Lite 总线驱动 DUT。Monitor 以虚线 tapping 的方式并联在总线上，被动采样，不参与驱动。
+- **SPI Agent（右侧）**：内部依次为 Sequencer → Driver → DUT。MOSI、SCK、CS 由 DUT 输出到 SPI Driver，MISO 由 SPI Driver 输入到 DUT。Monitor 同样以虚线 tapping 的方式并联在总线上采样。
+- **Scoreboard 和 Coverage Collector**：两个 Monitor 各自通过 analysis port 同时向两者广播事务数据。
+- **Virtual Sequencer**：分别连接 AXI Sequencer 和 SPI Sequencer，协调两侧时序。
 
 ## 三、组件说明
 
@@ -65,20 +70,20 @@
 
 ## 四、测试用例
 
-| 编号 | 用例名 | 场景 | 检查点 |
-|------|--------|------|--------|
-| TC01 | test_reg_write_read | 通过 AXI 写可写寄存器，读回验证 | 写读一致，读只读寄存器值正确 |
-| TC02 | test_wstrb_byte | 分别用 WSTRB=0001/0010/0100/1000 写 slv_reg0 | 仅目标字节被改写，其他字节不变 |
-| TC03 | test_readonly_protection | 写 slv_reg1 和 slv_reg9（只读寄存器） | 写入无效，读回值来自 SPI 状态 |
-| TC04 | test_spi_mode_0_loopback | CPOL=0 CPHA=0，32bit 回环，MOSI=MISO 直连 | slv_reg9 收到的等于 slv_reg8 发出的 |
-| TC05 | test_spi_mode_1_loopback | CPOL=0 CPHA=1，回环 | 同上 |
-| TC06 | test_spi_mode_2_loopback | CPOL=1 CPHA=0，回环 | 同上 |
-| TC07 | test_spi_mode_3_loopback | CPOL=1 CPHA=1，回环 | 同上 |
-| TC08 | test_spi_word_len | 分别测 4/8/16/32 bit 字长 | 每笔传输 bit 数正确 |
-| TC09 | test_continuous_transfer | 连续写两笔 MOSI 数据，start_i 连续拉 | 帧间隙 IFG 正确，busy 无误跳 |
-| TC10 | test_reset_mid_transfer | 传输过程中拉低复位 | DUT 回到 IDLE，寄存器清零 |
-| TC11 | test_unaligned_address | 发地址 0x01 读 slv_reg0 | DUT 返回 OKAY，实际访问了 slv_reg0 |
-| TC12 | test_back_to_back_rw | 写完立即读同一地址 | 读回值等于写入值，无竞争 |
+| 编号   | 用例名                      | 场景                                       | 检查点                         |
+| ---- | ------------------------ | ---------------------------------------- | --------------------------- |
+| TC01 | test_reg_write_read      | 通过 AXI 写可写寄存器，读回验证                       | 写读一致，读只读寄存器值正确              |
+| TC02 | test_wstrb_byte          | 分别用 WSTRB=0001/0010/0100/1000 写 slv_reg0 | 仅目标字节被改写，其他字节不变             |
+| TC03 | test_readonly_protection | 写 slv_reg1 和 slv_reg9（只读寄存器）             | 写入无效，读回值来自 SPI 状态           |
+| TC04 | test_spi_mode_0_loopback | CPOL=0 CPHA=0，32bit 回环，MOSI=MISO 直连      | slv_reg9 收到的等于 slv_reg8 发出的 |
+| TC05 | test_spi_mode_1_loopback | CPOL=0 CPHA=1，回环                         | 同上                          |
+| TC06 | test_spi_mode_2_loopback | CPOL=1 CPHA=0，回环                         | 同上                          |
+| TC07 | test_spi_mode_3_loopback | CPOL=1 CPHA=1，回环                         | 同上                          |
+| TC08 | test_spi_word_len        | 分别测 4/8/16/32 bit 字长                     | 每笔传输 bit 数正确                |
+| TC09 | test_continuous_transfer | 连续写两笔 MOSI 数据，start_i 连续拉                | 帧间隙 IFG 正确，busy 无误跳         |
+| TC10 | test_reset_mid_transfer  | 传输过程中拉低复位                                | DUT 回到 IDLE，寄存器清零           |
+| TC11 | test_unaligned_address   | 发地址 0x01 读 slv_reg0                      | DUT 返回 OKAY，实际访问了 slv_reg0  |
+| TC12 | test_back_to_back_rw     | 写完立即读同一地址                                | 读回值等于写入值，无竞争                |
 
 ## 五、提交物
 
