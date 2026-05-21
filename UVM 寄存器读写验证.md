@@ -471,7 +471,6 @@ Driver 中 get 的标准写法：
 
 ```systemverilog
 uvm_config_db #(virtual reg_if)::get(this, "", "vif", vif)
-//            ↑类型参数    ↑静态方法  ↑1   ↑2    ↑3    ↑4
 ```
 
 逐一解释各部分的含义：
