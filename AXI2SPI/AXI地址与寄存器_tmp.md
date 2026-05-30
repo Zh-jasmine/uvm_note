@@ -21,18 +21,18 @@
 - `OPT_MEM_ADDR_BITS = 3`
 
 ## 本 DUT 寄存器映射
-| addr[5:2] | 完整地址 | 寄存器      | 作用                    |
-| --------- | ---- | -------- | --------------------- |
-| 4'h0      | 0x00 | slv_reg0 | ctrl: [0] = start bit |
-| 4'h1      | 0x04 | slv_reg1 | busy from SPI（注释掉）    |
-| 4'h2      | 0x08 | slv_reg2 | 未用                    |
-| 4'h3      | 0x0C | slv_reg3 | 未用                    |
-| 4'h4      | 0x10 | slv_reg4 | [1:0] = word_len      |
-| 4'h5      | 0x14 | slv_reg5 | 未用                    |
-| 4'h6      | 0x18 | slv_reg6 | 未用                    |
-| 4'h7      | 0x1C | slv_reg7 | 未用                    |
-| 4'h8      | 0x20 | slv_reg8 | mosi_data             |
-| 4'h9      | 0x24 | slv_reg9 | miso from SPI（注释掉）    |
+| addr[5:2] | 完整地址 | 寄存器      | 位段                 | 作用                              | 读写  |
+| --------- | ---- | -------- | ------------------ | ------------------------------- | --- |
+| 4'h0      | 0x00 | slv_reg0 | [0] = start        | ctrl: 写 1 触发 SPI 传输             | W   |
+| 4'h1      | 0x04 | slv_reg1 | [0] = busy         | SPI 忙标志（RTL 自动更新）               | R   |
+| 4'h2      | 0x08 | slv_reg2 | [1:0] = spi_mode   | CPOL/CPHA: 0/1/2/3              | R/W |
+| 4'h3      | 0x0C | slv_reg3 | [1:0] = sck_speed  | SCK 分频: 0=÷2, 1=÷4, 2=÷8, 3=÷16 | R/W |
+| 4'h4      | 0x10 | slv_reg4 | [1:0] = word_len   | 0=32b, 1=16b, 2=8b, 3=4b        | R/W |
+| 4'h5      | 0x14 | slv_reg5 | [7:0] = IFG        | 帧间隔（SCK 周期数）                    | R/W |
+| 4'h6      | 0x18 | slv_reg6 | [7:0] = CS_SCK     | CS 拉低到首个 SCK 的延迟                | R/W |
+| 4'h7      | 0x1C | slv_reg7 | [7:0] = SCK_CS     | 末个 SCK 到 CS 拉高的延迟               | R/W |
+| 4'h8      | 0x20 | slv_reg8 | [31:0] = mosi_data | 待发送的 MOSI 数据                    | R/W |
+| 4'h9      | 0x24 | slv_reg9 | [31:0] = miso_data | 接收到的 MISO 数据（RTL 自动更新）          | R   |
 
 地址换算：`addr[5:2] = N` → 完整地址 = `N × 4`
 
