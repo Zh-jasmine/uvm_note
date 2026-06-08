@@ -82,7 +82,7 @@ RTL 地址译码使用 addr[5:2]，共 10 个寄存器，地址分配如下。
 | 0x08 | 4'h2      | slv_reg2 | 可读写    | spi_mode_i = slv_reg2[1:0]   | SPI 模式：00=Mode0, 01=Mode1, 10=Mode2, 11=Mode3 |
 | 0x0C | 4'h3      | slv_reg3 | 可读写    | sck_speed_i = slv_reg3[1:0]  | SCK 时钟分频系数                                    |
 | 0x10 | 4'h4      | slv_reg4 | 可读写    | word_len_i = slv_reg4[1:0]   | SPI 字长：00=32b, 01=16b, 10=8b, 11=4b           |
-| 0x14 | 4'h5      | slv_reg5 | 可读写    | IFG_i = slv_reg5[7:0]        | SPI 帧间隔（两次传输之间的时钟数）                           |
+| 0x14 | 4'h5      | slv_reg5 | 可读写    |         | SPI 帧间隔（两次传输之间的时钟数）                           |
 | 0x18 | 4'h6      | slv_reg6 | 可读写    | CS_SCK_i = slv_reg6[7:0]     | CS 拉低到第一个 SCK 边沿的延迟                           |
 | 0x1C | 4'h7      | slv_reg7 | 可读写    | SCK_CS_i = slv_reg7[7:0]     | 最后 SCK 边沿到 CS 拉高的延迟                           |
 | 0x20 | 4'h8      | slv_reg8 | 可读写    | mosi_data_i = slv_reg8[31:0] | MOSI 发送数据寄存器                                  |
